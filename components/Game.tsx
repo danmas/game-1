@@ -51,6 +51,19 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
   const defaultCamPos = useMemo(() => new THREE.Vector3(0, PLAYER_HEIGHT + 0.4, 6), []);
   const defaultLookAt = useMemo(() => new THREE.Vector3(0, PLAYER_HEIGHT + 0.4, -10), []);
 
+  // Memoize tree positions so they don't change on every re-render
+  const trees = useMemo(() => {
+    return Array.from({ length: 40 }).map((_, i) => ({
+      id: i,
+      position: [
+        (Math.random() - 0.5) * 80, 
+        0, 
+        -Math.random() * 120 - 20
+      ] as [number, number, number],
+      scale: 0.8 + Math.random() * 0.5
+    }));
+  }, []);
+
   // Initialize camera position once
   useEffect(() => {
     if (cameraRef.current) {
@@ -165,14 +178,13 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
       }
     }
 
-    // 2. Physics Calculation (done before state update to have current positions)
+    // 2. Physics Calculation
     const now = Date.now();
     const nextProjectiles: ProjectileData[] = [];
     let hitOccurred = false;
     const hitIds: string[] = [];
     let activeProjectile: ProjectileData | undefined = undefined;
 
-    // Use a temp array to calculate next step
     for (const p of projectiles) {
       if (now - p.createdAt > PROJECTILE_LIFETIME) continue;
 
@@ -214,29 +226,24 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
       }
     }
 
-    // Apply hits if any
     if (hitOccurred) {
       setTargets(prevT => prevT.map(t => hitIds.includes(t.id) ? { ...t, hit: true } : t));
       for (let i = 0; i < hitIds.length; i++) onHit();
     }
 
-    // Update projectiles state
     if (nextProjectiles.length !== projectiles.length || nextProjectiles.length > 0) {
       setProjectiles(nextProjectiles);
     }
 
-    // 3. Camera Logic (using calculated activeProjectile)
+    // 3. Camera Logic
     const cam = cameraRef.current || camera;
     if (activeProjectile) {
       const p = activeProjectile.position;
-      // Position camera slightly behind and above the stone
       const followOffset = new THREE.Vector3(p.x, p.y + 0.8, p.z + 4);
       cam.position.lerp(followOffset, 0.1);
       cam.lookAt(p.x, p.y, p.z);
     } else {
-      // Smoothly return to base
       cam.position.lerp(defaultCamPos, 0.05);
-      
       const currentLookAt = new THREE.Vector3();
       cam.getWorldDirection(currentLookAt);
       const targetLookAt = defaultLookAt.clone().sub(cam.position).normalize();
@@ -247,7 +254,6 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
 
   return (
     <>
-      {/* Remove position prop to allow manual control in useFrame */}
       <PerspectiveCamera ref={cameraRef} makeDefault fov={45} />
       
       <Sky sunPosition={[100, 20, 100]} turbidity={0.1} rayleigh={0.3} />
@@ -261,9 +267,10 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
         <meshStandardMaterial color="#2d4a31" roughness={1} />
       </mesh>
       
-      {Array.from({ length: 30 }).map((_, i) => (
-        <mesh key={i} position={[(Math.random() - 0.5) * 60, 0, -Math.random() * 100 - 30]}>
-          <cylinderGeometry args={[0.1, 0.2, 5, 6]} />
+      {/* Trees are now stable because they are memoized */}
+      {trees.map((tree) => (
+        <mesh key={tree.id} position={tree.position}>
+          <cylinderGeometry args={[0.1 * tree.scale, 0.2 * tree.scale, 5 * tree.scale, 6]} />
           <meshStandardMaterial color="#1b1108" />
         </mesh>
       ))}
@@ -279,7 +286,6 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
         <Projectile key={p.id} position={p.position} />
       ))}
 
-      {/* Capture Plane */}
       <mesh 
         position={[0, PLAYER_HEIGHT, 0]} 
         onPointerDown={handlePointerDown} 
