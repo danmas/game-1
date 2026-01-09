@@ -1,0 +1,5 @@
+{
+  "name": "3D Slingshot Master",
+  "description": "A high-fidelity first-person 3D slingshot game where you hit targets across a field using parabolic physics and inverted pull controls.",
+  "requestFramePermissions": []
+}
