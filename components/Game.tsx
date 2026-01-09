@@ -39,13 +39,27 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
   const [isPulling, setIsPulling] = useState(false);
   const [spacePressedStartTime, setSpacePressedStartTime] = useState<number | null>(null);
   const [power, setPower] = useState(0);
+  const [activeProjectileId, setActiveProjectileId] = useState<string | null>(null);
 
-  const { mouse } = useThree();
+  const { mouse, camera } = useThree();
+  const cameraRef = useRef<THREE.PerspectiveCamera>(null!);
   const isSpaceDownRef = useRef(false);
   const powerRef = useRef(0);
   const isPullingRef = useRef(false);
+  
+  // Default camera settings
+  const defaultCamPos = useMemo(() => new THREE.Vector3(0, PLAYER_HEIGHT + 0.4, 6), []);
+  const defaultLookAt = useMemo(() => new THREE.Vector3(0, PLAYER_HEIGHT + 0.4, -10), []);
 
-  // Sync refs for event listeners to avoid stale closures without dependency thrashing
+  // Initialize camera position once
+  useEffect(() => {
+    if (cameraRef.current) {
+      cameraRef.current.position.copy(defaultCamPos);
+      cameraRef.current.lookAt(defaultLookAt);
+    }
+  }, [defaultCamPos, defaultLookAt]);
+
+  // Sync refs for event listeners
   useEffect(() => {
     powerRef.current = power;
     isPullingRef.current = isPulling;
@@ -69,9 +83,6 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
   }, []);
 
   const fireProjectile = () => {
-    // Current direction based on mouse position
-    // Pull UP (mouse.y > 0) -> Fire DOWN (direction.y < 0)
-    // Pull LEFT (mouse.x < 0) -> Fire RIGHT (direction.x > 0)
     const direction = new THREE.Vector3(
       -mouse.x * 8,  
       -mouse.y * 14, 
@@ -79,15 +90,17 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
     ).normalize();
 
     const velocity = direction.multiplyScalar(powerRef.current);
+    const id = `stone-${Date.now()}`;
 
     const newProjectile: ProjectileData = {
-      id: `stone-${Date.now()}`,
+      id,
       position: { x: 0, y: PLAYER_HEIGHT, z: 0.5 },
       velocity: { x: velocity.x, y: velocity.y, z: velocity.z },
       createdAt: Date.now()
     };
 
     setProjectiles(prev => [...prev, newProjectile]);
+    setActiveProjectileId(id);
     
     // Reset state
     setIsPulling(false);
@@ -120,11 +133,12 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, []); // Empty deps - we use refs inside fireProjectile
+  }, []);
 
   const handlePointerDown = () => {
     setIsPulling(true);
     setPower(MAX_POWER * BASE_POWER_FACTOR);
+    setActiveProjectileId(null); 
   };
 
   const handlePointerUp = () => {
@@ -137,7 +151,7 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
   };
 
   useFrame((state, delta) => {
-    // Update power based on spacebar hold
+    // 1. Update power
     if (isPulling) {
       if (isSpaceDownRef.current && spacePressedStartTime !== null) {
         const elapsed = Date.now() - spacePressedStartTime;
@@ -151,64 +165,91 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
       }
     }
 
-    // Physics
-    setProjectiles(prev => {
-      if (prev.length === 0) return prev;
+    // 2. Physics Calculation (done before state update to have current positions)
+    const now = Date.now();
+    const nextProjectiles: ProjectileData[] = [];
+    let hitOccurred = false;
+    const hitIds: string[] = [];
+    let activeProjectile: ProjectileData | undefined = undefined;
+
+    // Use a temp array to calculate next step
+    for (const p of projectiles) {
+      if (now - p.createdAt > PROJECTILE_LIFETIME) continue;
+
+      const newPos = {
+        x: p.position.x + p.velocity.x * delta,
+        y: p.position.y + p.velocity.y * delta,
+        z: p.position.z + p.velocity.z * delta
+      };
+      const newVel = {
+        x: p.velocity.x,
+        y: p.velocity.y - GRAVITY * delta,
+        z: p.velocity.z
+      };
+
+      if (newPos.y < 0) continue;
+
+      let currentProjectileHit = false;
+      for (const t of targets) {
+        if (t.hit) continue;
+        const dx = newPos.x - t.position.x;
+        const dy = newPos.y - t.position.y;
+        const dz = newPos.z - t.position.z;
+        const distSq = dx * dx + dy * dy + dz * dz;
+        
+        if (distSq < 1.0) {
+          hitOccurred = true;
+          hitIds.push(t.id);
+          currentProjectileHit = true;
+          break; 
+        }
+      }
+
+      if (!currentProjectileHit) {
+        const updatedP = { ...p, position: newPos, velocity: newVel };
+        nextProjectiles.push(updatedP);
+        if (p.id === activeProjectileId) {
+          activeProjectile = updatedP;
+        }
+      }
+    }
+
+    // Apply hits if any
+    if (hitOccurred) {
+      setTargets(prevT => prevT.map(t => hitIds.includes(t.id) ? { ...t, hit: true } : t));
+      for (let i = 0; i < hitIds.length; i++) onHit();
+    }
+
+    // Update projectiles state
+    if (nextProjectiles.length !== projectiles.length || nextProjectiles.length > 0) {
+      setProjectiles(nextProjectiles);
+    }
+
+    // 3. Camera Logic (using calculated activeProjectile)
+    const cam = cameraRef.current || camera;
+    if (activeProjectile) {
+      const p = activeProjectile.position;
+      // Position camera slightly behind and above the stone
+      const followOffset = new THREE.Vector3(p.x, p.y + 0.8, p.z + 4);
+      cam.position.lerp(followOffset, 0.1);
+      cam.lookAt(p.x, p.y, p.z);
+    } else {
+      // Smoothly return to base
+      cam.position.lerp(defaultCamPos, 0.05);
       
-      const now = Date.now();
-      const nextProjectiles: ProjectileData[] = [];
-      let hitOccurred = false;
-      const hitIds: string[] = [];
-
-      for (const p of prev) {
-        if (now - p.createdAt > PROJECTILE_LIFETIME) continue;
-
-        const newPos = {
-          x: p.position.x + p.velocity.x * delta,
-          y: p.position.y + p.velocity.y * delta,
-          z: p.position.z + p.velocity.z * delta
-        };
-        const newVel = {
-          x: p.velocity.x,
-          y: p.velocity.y - GRAVITY * delta,
-          z: p.velocity.z
-        };
-
-        if (newPos.y < 0) continue;
-
-        let currentProjectileHit = false;
-        for (const t of targets) {
-          if (t.hit) continue;
-          const dx = newPos.x - t.position.x;
-          const dy = newPos.y - t.position.y;
-          const dz = newPos.z - t.position.z;
-          const distSq = dx * dx + dy * dy + dz * dz;
-          
-          if (distSq < 1.0) {
-            hitOccurred = true;
-            hitIds.push(t.id);
-            currentProjectileHit = true;
-            break; 
-          }
-        }
-
-        if (!currentProjectileHit) {
-          nextProjectiles.push({ ...p, position: newPos, velocity: newVel });
-        }
-      }
-
-      if (hitOccurred) {
-        setTargets(prevT => prevT.map(t => hitIds.includes(t.id) ? { ...t, hit: true } : t));
-        for (let i = 0; i < hitIds.length; i++) onHit();
-      }
-
-      return nextProjectiles;
-    });
+      const currentLookAt = new THREE.Vector3();
+      cam.getWorldDirection(currentLookAt);
+      const targetLookAt = defaultLookAt.clone().sub(cam.position).normalize();
+      const finalLookAt = currentLookAt.lerp(targetLookAt, 0.05);
+      cam.lookAt(cam.position.clone().add(finalLookAt));
+    }
   });
 
   return (
     <>
-      <PerspectiveCamera makeDefault position={[0, PLAYER_HEIGHT + 0.4, 6]} fov={45} />
+      {/* Remove position prop to allow manual control in useFrame */}
+      <PerspectiveCamera ref={cameraRef} makeDefault fov={45} />
+      
       <Sky sunPosition={[100, 20, 100]} turbidity={0.1} rayleigh={0.3} />
       <Stars radius={100} depth={50} count={1500} factor={4} saturation={0} fade speed={0} />
       
