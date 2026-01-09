@@ -1,103 +1,100 @@
+
 import React, { useRef, useMemo } from 'react';
 import { useFrame, ThreeElements } from '@react-three/fiber';
 import * as THREE from 'three';
-import { PLAYER_HEIGHT } from '../constants';
+import { PLAYER_HEIGHT, MAX_POWER } from '../constants';
 
-// Add type augmentation to support Three.js elements in JSX
 declare global {
   namespace JSX {
     interface IntrinsicElements extends ThreeElements {}
+  }
+  namespace React {
+    namespace JSX {
+      interface IntrinsicElements extends ThreeElements {}
+    }
   }
 }
 
 interface SlingshotProps {
   isPulling: boolean;
-  pullVector: THREE.Vector3;
+  mouseRef: THREE.Vector2; // Live reference from useThree
   power: number;
 }
 
-const Slingshot: React.FC<SlingshotProps> = ({ isPulling, pullVector, power }) => {
+const Slingshot: React.FC<SlingshotProps> = ({ isPulling, mouseRef, power }) => {
   const leftBandRef = useRef<THREE.Line>(null!);
   const rightBandRef = useRef<THREE.Line>(null!);
   const pouchRef = useRef<THREE.Group>(null!);
 
-  const basePos = useMemo(() => new THREE.Vector3(0, PLAYER_HEIGHT - 0.4, 1), []);
-  const forkLeft = useMemo(() => new THREE.Vector3(-0.3, PLAYER_HEIGHT, 1), []);
-  const forkRight = useMemo(() => new THREE.Vector3(0.3, PLAYER_HEIGHT, 1), []);
+  const forkLeft = useMemo(() => new THREE.Vector3(-0.35, PLAYER_HEIGHT + 0.1, 1), []);
+  const forkRight = useMemo(() => new THREE.Vector3(0.35, PLAYER_HEIGHT + 0.1, 1), []);
 
   useFrame(() => {
-    // Current "pull point"
-    // pullVector.x/y is normalized -1 to 1.
-    // We map this to a local offset for the pouch
-    const stretchX = isPulling ? pullVector.x * 0.5 : 0;
-    const stretchY = isPulling ? pullVector.y * 0.5 : 0;
-    const stretchZ = isPulling ? (power / 60) * 1.5 : 0; // Pull backwards
+    // We read from mouseRef directly here, so it's always up to date 
+    // without needing parent re-renders.
+    const stretchX = isPulling ? mouseRef.x * 0.8 : 0;
+    const stretchY = isPulling ? mouseRef.y * 0.8 : 0;
+    
+    // Z stretch depends directly on power
+    const stretchZ = isPulling ? (power / MAX_POWER) * 2.0 : 0;
 
     const pouchTarget = new THREE.Vector3(
       stretchX,
-      PLAYER_HEIGHT + stretchY,
+      PLAYER_HEIGHT + 0.1 + stretchY,
       1 + stretchZ
     );
 
-    pouchRef.current.position.lerp(pouchTarget, 0.2);
-
+    // Smooth movement for the visual representation
+    pouchRef.current.position.lerp(pouchTarget, 0.3);
     const pouchPos = pouchRef.current.position;
 
     // Update Band Geometries
-    const leftPoints = [forkLeft, pouchPos];
-    leftBandRef.current.geometry.setFromPoints(leftPoints);
-
-    const rightPoints = [forkRight, pouchPos];
-    rightBandRef.current.geometry.setFromPoints(rightPoints);
+    leftBandRef.current.geometry.setFromPoints([forkLeft, pouchPos]);
+    rightBandRef.current.geometry.setFromPoints([forkRight, pouchPos]);
   });
 
   return (
     <group>
-      {/* Slingshot Handle & Fork */}
+      {/* Wooden Frame */}
       <group position={[0, PLAYER_HEIGHT - 0.4, 1]}>
-        {/* Handle */}
         <mesh position={[0, -0.3, 0]}>
-          <boxGeometry args={[0.08, 0.6, 0.08]} />
-          <meshStandardMaterial color="#5d4037" roughness={1} />
+          <boxGeometry args={[0.1, 0.7, 0.1]} />
+          <meshStandardMaterial color="#4e342e" />
         </mesh>
-        {/* Fork Bridge */}
-        <mesh position={[0, 0, 0]}>
-          <boxGeometry args={[0.6, 0.08, 0.08]} />
-          <meshStandardMaterial color="#5d4037" roughness={1} />
+        <mesh position={[0, 0.1, 0]}>
+          <boxGeometry args={[0.7, 0.1, 0.1]} />
+          <meshStandardMaterial color="#4e342e" />
         </mesh>
-        {/* Left Tip */}
-        <mesh position={[-0.3, 0.2, 0]}>
-          <boxGeometry args={[0.08, 0.4, 0.08]} />
-          <meshStandardMaterial color="#5d4037" roughness={1} />
+        <mesh position={[-0.35, 0.3, 0]}>
+          <boxGeometry args={[0.1, 0.5, 0.1]} />
+          <meshStandardMaterial color="#4e342e" />
         </mesh>
-        {/* Right Tip */}
-        <mesh position={[0.3, 0.2, 0]}>
-          <boxGeometry args={[0.08, 0.4, 0.08]} />
-          <meshStandardMaterial color="#5d4037" roughness={1} />
+        <mesh position={[0.35, 0.3, 0]}>
+          <boxGeometry args={[0.1, 0.5, 0.1]} />
+          <meshStandardMaterial color="#4e342e" />
         </mesh>
       </group>
 
       {/* Rubber Bands */}
-      <line ref={leftBandRef}>
+      <line ref={leftBandRef as any}>
         <bufferGeometry />
-        <lineBasicMaterial color="#e91e63" linewidth={2} />
+        <lineBasicMaterial color="#ff5252" linewidth={3} />
       </line>
-      <line ref={rightBandRef}>
+      <line ref={rightBandRef as any}>
         <bufferGeometry />
-        <lineBasicMaterial color="#e91e63" linewidth={2} />
+        <lineBasicMaterial color="#ff5252" linewidth={3} />
       </line>
 
-      {/* Pouch / Stone Holder */}
+      {/* Pouch with Stone */}
       <group ref={pouchRef}>
-        <mesh>
-          <sphereGeometry args={[0.05, 12, 12]} />
-          <meshStandardMaterial color="#333" />
+        <mesh castShadow>
+          <sphereGeometry args={[0.08, 12, 12]} />
+          <meshStandardMaterial color="#424242" />
         </mesh>
-        {/* Aim indicator if pulling */}
         {isPulling && (
-          <mesh position={[0, 0, -2]}>
-             <sphereGeometry args={[0.02, 4, 4]} />
-             <meshBasicMaterial color="yellow" transparent opacity={0.5} />
+          <mesh position={[0, 0, -3]}>
+             <ringGeometry args={[0.1, 0.12, 32]} />
+             <meshBasicMaterial color="yellow" transparent opacity={0.4} />
           </mesh>
         )}
       </group>
