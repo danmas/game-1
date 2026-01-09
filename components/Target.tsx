@@ -1,3 +1,4 @@
+
 import React, { useRef } from 'react';
 import { useFrame, ThreeElements } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -26,18 +27,21 @@ const Target: React.FC<TargetProps> = ({ position }) => {
   return (
     <group ref={meshRef} position={[position.x, position.y, position.z]}>
       {/* Outer Ring */}
-      <mesh rotation={[0, 0, 0]}>
-        <cylinderGeometry args={[1, 1, 0.1, 32]} rotation={[Math.PI / 2, 0, 0]} />
+      {/* Fix: Moved rotation from cylinderGeometry to mesh */}
+      <mesh rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[1, 1, 0.1, 32]} />
         <meshStandardMaterial color="white" />
       </mesh>
       {/* Red Ring */}
-      <mesh position={[0, 0, 0.06]}>
-        <cylinderGeometry args={[0.7, 0.7, 0.02, 32]} rotation={[Math.PI / 2, 0, 0]} />
+      {/* Fix: Moved rotation from cylinderGeometry to mesh */}
+      <mesh position={[0, 0, 0.06]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.7, 0.7, 0.02, 32]} />
         <meshStandardMaterial color="red" />
       </mesh>
       {/* Bullseye */}
-      <mesh position={[0, 0, 0.08]}>
-        <cylinderGeometry args={[0.3, 0.3, 0.02, 32]} rotation={[Math.PI / 2, 0, 0]} />
+      {/* Fix: Moved rotation from cylinderGeometry to mesh */}
+      <mesh position={[0, 0, 0.08]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.3, 0.3, 0.02, 32]} />
         <meshStandardMaterial color="red" />
       </mesh>
       {/* Stand/Pole */}
