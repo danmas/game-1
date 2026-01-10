@@ -12,8 +12,6 @@ import {
   PLAYER_HEIGHT, 
   GRAVITY, 
   MAX_POWER, 
-  BASE_POWER_FACTOR, 
-  CHARGE_TIME_MS, 
   PROJECTILE_LIFETIME 
 } from '../constants';
 
@@ -37,21 +35,18 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
   const [targets, setTargets] = useState<TargetData[]>([]);
   const [projectiles, setProjectiles] = useState<ProjectileData[]>([]);
   const [isPulling, setIsPulling] = useState(false);
-  const [spacePressedStartTime, setSpacePressedStartTime] = useState<number | null>(null);
   const [power, setPower] = useState(0);
   const [activeProjectileId, setActiveProjectileId] = useState<string | null>(null);
 
   const { mouse, camera } = useThree();
   const cameraRef = useRef<THREE.PerspectiveCamera>(null!);
-  const isSpaceDownRef = useRef(false);
   const powerRef = useRef(0);
-  const isPullingRef = useRef(false);
   
   // Default camera settings
   const defaultCamPos = useMemo(() => new THREE.Vector3(0, PLAYER_HEIGHT + 0.4, 6), []);
   const defaultLookAt = useMemo(() => new THREE.Vector3(0, PLAYER_HEIGHT + 0.4, -10), []);
 
-  // Memoize tree positions so they don't change on every re-render
+  // Memoize tree positions
   const trees = useMemo(() => {
     return Array.from({ length: 40 }).map((_, i) => ({
       id: i,
@@ -72,11 +67,10 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
     }
   }, [defaultCamPos, defaultLookAt]);
 
-  // Sync refs for event listeners
+  // Sync ref for access in fireProjectile during event callback if needed (though here we use it in useFrame mostly)
   useEffect(() => {
     powerRef.current = power;
-    isPullingRef.current = isPulling;
-  }, [power, isPulling]);
+  }, [power]);
 
   // Initialize targets
   useEffect(() => {
@@ -96,18 +90,21 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
   }, []);
 
   const fireProjectile = () => {
+    // Basic direction based on mouse position
+    // We invert mouse X because pulling right should aim slightly left and vice versa
     const direction = new THREE.Vector3(
-      -mouse.x * 8,  
-      -mouse.y * 14, 
-      -25            
+      -mouse.x * 12,  
+      -mouse.y * 18, 
+      -35            
     ).normalize();
 
+    // Use current calculated power
     const velocity = direction.multiplyScalar(powerRef.current);
     const id = `stone-${Date.now()}`;
 
     const newProjectile: ProjectileData = {
       id,
-      position: { x: 0, y: PLAYER_HEIGHT, z: 0.5 },
+      position: { x: 0, y: PLAYER_HEIGHT + 0.1, z: 0.8 },
       velocity: { x: velocity.x, y: velocity.y, z: velocity.z },
       createdAt: Date.now()
     };
@@ -119,63 +116,38 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
     setIsPulling(false);
     setPower(0);
     onPowerChange(0);
-    setSpacePressedStartTime(null);
   };
-
-  // Keyboard listeners
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'Space' && !isSpaceDownRef.current && isPullingRef.current) {
-        isSpaceDownRef.current = true;
-        setSpacePressedStartTime(Date.now());
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === 'Space' && isSpaceDownRef.current) {
-        isSpaceDownRef.current = false;
-        if (isPullingRef.current) {
-          fireProjectile();
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  }, []);
 
   const handlePointerDown = () => {
     setIsPulling(true);
-    setPower(MAX_POWER * BASE_POWER_FACTOR);
-    setActiveProjectileId(null); 
+    setActiveProjectileId(null); // Return camera to player to start aiming
   };
 
   const handlePointerUp = () => {
-    if (!isSpaceDownRef.current) {
-      setIsPulling(false);
-      setPower(0);
-      onPowerChange(0);
-      setSpacePressedStartTime(null);
+    if (isPulling) {
+      // Small threshold to prevent firing on tiny accidental clicks
+      if (powerRef.current > 5) {
+        fireProjectile();
+      } else {
+        setIsPulling(false);
+        setPower(0);
+        onPowerChange(0);
+      }
     }
   };
 
   useFrame((state, delta) => {
-    // 1. Update power
+    // 1. Update power based on mouse displacement from "neutral"
     if (isPulling) {
-      if (isSpaceDownRef.current && spacePressedStartTime !== null) {
-        const elapsed = Date.now() - spacePressedStartTime;
-        const chargeProgress = Math.min(elapsed / CHARGE_TIME_MS, 1);
-        const calculatedPower = MAX_POWER * BASE_POWER_FACTOR + (MAX_POWER * (1 - BASE_POWER_FACTOR) * chargeProgress);
-        setPower(calculatedPower);
-        onPowerChange(calculatedPower / MAX_POWER);
-      } else {
-        setPower(MAX_POWER * BASE_POWER_FACTOR);
-        onPowerChange(BASE_POWER_FACTOR);
-      }
+      // Calculate distance from center (0,0) of the screen
+      // mouse.x/y is [-1, 1]
+      const pullDist = Math.sqrt(mouse.x * mouse.x + mouse.y * mouse.y);
+      // Map 0-0.8 pull to 0-MAX_POWER
+      const normalizedPull = Math.min(pullDist / 0.8, 1.0);
+      const newPower = normalizedPull * MAX_POWER;
+      
+      setPower(newPower);
+      onPowerChange(normalizedPull);
     }
 
     // 2. Physics Calculation
@@ -183,7 +155,7 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
     const nextProjectiles: ProjectileData[] = [];
     let hitOccurred = false;
     const hitIds: string[] = [];
-    let activeProjectile: ProjectileData | undefined = undefined;
+    let currentActiveProjectile: ProjectileData | undefined = undefined;
 
     for (const p of projectiles) {
       if (now - p.createdAt > PROJECTILE_LIFETIME) continue;
@@ -199,7 +171,7 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
         z: p.velocity.z
       };
 
-      if (newPos.y < 0) continue;
+      if (newPos.y < -1) continue; // Let it fall slightly below ground for better follow feel
 
       let currentProjectileHit = false;
       for (const t of targets) {
@@ -221,7 +193,7 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
         const updatedP = { ...p, position: newPos, velocity: newVel };
         nextProjectiles.push(updatedP);
         if (p.id === activeProjectileId) {
-          activeProjectile = updatedP;
+          currentActiveProjectile = updatedP;
         }
       }
     }
@@ -237,8 +209,9 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
 
     // 3. Camera Logic
     const cam = cameraRef.current || camera;
-    if (activeProjectile) {
-      const p = activeProjectile.position;
+    if (currentActiveProjectile) {
+      const p = currentActiveProjectile.position;
+      // Position camera slightly behind and above the stone
       const followOffset = new THREE.Vector3(p.x, p.y + 0.8, p.z + 4);
       cam.position.lerp(followOffset, 0.1);
       cam.lookAt(p.x, p.y, p.z);
@@ -267,7 +240,6 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
         <meshStandardMaterial color="#2d4a31" roughness={1} />
       </mesh>
       
-      {/* Trees are now stable because they are memoized */}
       {trees.map((tree) => (
         <mesh key={tree.id} position={tree.position}>
           <cylinderGeometry args={[0.1 * tree.scale, 0.2 * tree.scale, 5 * tree.scale, 6]} />
@@ -286,8 +258,9 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
         <Projectile key={p.id} position={p.position} />
       ))}
 
+      {/* Capture Plane for Pointer Events */}
       <mesh 
-        position={[0, PLAYER_HEIGHT, 0]} 
+        position={[0, PLAYER_HEIGHT, 3]} 
         onPointerDown={handlePointerDown} 
         onPointerUp={handlePointerUp}
       >

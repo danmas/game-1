@@ -43,9 +43,9 @@ const App: React.FC = () => {
       <div className="absolute top-6 right-6 z-10 pointer-events-none">
         <div className="bg-black/40 backdrop-blur-md p-4 rounded-xl border border-white/20 text-white text-right shadow-2xl">
           <p className="text-sm font-bold uppercase mb-2 opacity-60">Controls</p>
-          <p className="text-xs">1. Hold <span className="text-yellow-400">LMB</span> to Aim</p>
-          <p className="text-xs">2. Hold <span className="text-yellow-400">SPACE</span> to Charge</p>
-          <p className="text-xs">3. Release <span className="text-yellow-400">SPACE</span> to Fire</p>
+          <p className="text-xs">1. <span className="text-yellow-400 font-bold uppercase">Hold LMB</span> to Pull Back</p>
+          <p className="text-xs">2. <span className="text-yellow-400 font-bold uppercase">Move Mouse</span> to Aim</p>
+          <p className="text-xs">3. <span className="text-yellow-400 font-bold uppercase">Release LMB</span> to Fire</p>
         </div>
       </div>
 
@@ -53,7 +53,7 @@ const App: React.FC = () => {
       {currentPower > 0 && (
         <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-10 w-64">
           <div className="text-white text-center mb-2 font-black text-xs uppercase tracking-widest drop-shadow-lg">
-            Power: {Math.round(currentPower * 100)}%
+            Tension: {Math.round(currentPower * 100)}%
           </div>
           <div className="h-4 w-full bg-black/40 backdrop-blur-md rounded-full border border-white/20 overflow-hidden shadow-2xl">
             <div 
