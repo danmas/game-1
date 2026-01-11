@@ -4,7 +4,6 @@ import { useFrame, ThreeElements } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Vector3 } from '../types';
 
-// Add type augmentation to support Three.js elements in JSX
 declare global {
   namespace JSX {
     interface IntrinsicElements extends ThreeElements {}
@@ -19,35 +18,33 @@ const Target: React.FC<TargetProps> = ({ position }) => {
   const meshRef = useRef<THREE.Group>(null!);
 
   useFrame((state) => {
-    // Gentle floating animation
-    meshRef.current.position.y = position.y + Math.sin(state.clock.elapsedTime + position.z) * 0.2;
-    meshRef.current.rotation.y += 0.01;
+    // Парение мишени
+    meshRef.current.position.y = position.y + Math.sin(state.clock.elapsedTime * 2.5 + position.z) * 0.4;
+    meshRef.current.rotation.y += 0.03;
   });
 
   return (
     <group ref={meshRef} position={[position.x, position.y, position.z]}>
-      {/* Outer Ring */}
-      {/* Fix: Moved rotation from cylinderGeometry to mesh */}
-      <mesh rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[1, 1, 0.1, 32]} />
-        <meshStandardMaterial color="white" />
+      {/* Основа мишени */}
+      <mesh rotation={[Math.PI / 2, 0, 0]} castShadow>
+        <cylinderGeometry args={[1.5, 1.5, 0.2, 32]} />
+        <meshStandardMaterial color="#FFFFFF" />
       </mesh>
-      {/* Red Ring */}
-      {/* Fix: Moved rotation from cylinderGeometry to mesh */}
-      <mesh position={[0, 0, 0.06]} rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[0.7, 0.7, 0.02, 32]} />
-        <meshStandardMaterial color="red" />
+      
+      {/* Красные круги */}
+      <mesh position={[0, 0, 0.11]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[1.0, 1.0, 0.05, 32]} />
+        <meshStandardMaterial color="#F44336" />
       </mesh>
-      {/* Bullseye */}
-      {/* Fix: Moved rotation from cylinderGeometry to mesh */}
-      <mesh position={[0, 0, 0.08]} rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[0.3, 0.3, 0.02, 32]} />
-        <meshStandardMaterial color="red" />
+      <mesh position={[0, 0, 0.15]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.5, 0.5, 0.05, 32]} />
+        <meshStandardMaterial color="#F44336" />
       </mesh>
-      {/* Stand/Pole */}
-      <mesh position={[0, -5, 0]}>
-        <cylinderGeometry args={[0.1, 0.1, 10, 8]} />
-        <meshStandardMaterial color="#444" />
+      
+      {/* Столб */}
+      <mesh position={[0, -position.y - 1, 0]}>
+        <cylinderGeometry args={[0.15, 0.15, 12, 8]} />
+        <meshStandardMaterial color="#424242" />
       </mesh>
     </group>
   );

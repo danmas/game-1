@@ -2,7 +2,7 @@
 import React, { useRef, useMemo } from 'react';
 import { useFrame, ThreeElements } from '@react-three/fiber';
 import * as THREE from 'three';
-import { PLAYER_HEIGHT, MAX_POWER } from '../constants';
+import { MAX_POWER } from '../constants';
 
 declare global {
   namespace JSX {
@@ -13,68 +13,50 @@ declare global {
 interface SlingshotProps {
   isPulling: boolean;
   mouseRef: THREE.Vector2;
-  power: number;
+  powerRef: React.MutableRefObject<number>;
 }
 
-const Slingshot: React.FC<SlingshotProps> = ({ isPulling, mouseRef, power }) => {
+const Slingshot: React.FC<SlingshotProps> = ({ isPulling, mouseRef, powerRef }) => {
   const leftBandRef = useRef<THREE.Line>(null!);
   const rightBandRef = useRef<THREE.Line>(null!);
   const pouchRef = useRef<THREE.Group>(null!);
   const arrowRef = useRef<THREE.Group>(null!);
   const arrowShaftRef = useRef<THREE.Mesh>(null!);
-  const arrowHeadRef = useRef<THREE.Mesh>(null!);
   const arrowMaterialRef = useRef<THREE.MeshStandardMaterial>(null!);
 
-  const forkLeft = useMemo(() => new THREE.Vector3(-0.35, PLAYER_HEIGHT + 0.1, 1), []);
-  const forkRight = useMemo(() => new THREE.Vector3(0.35, PLAYER_HEIGHT + 0.1, 1), []);
-  const forkCenter = useMemo(() => new THREE.Vector3(0, PLAYER_HEIGHT + 0.1, 1), []);
+  const forkLeft = useMemo(() => new THREE.Vector3(-0.45, 0.3, 0), []);
+  const forkRight = useMemo(() => new THREE.Vector3(0.45, 0.3, 0), []);
 
   useFrame(() => {
-    // 1. Calculate Pull Visuals
-    const stretchX = isPulling ? mouseRef.x * 0.8 : 0;
-    const stretchY = isPulling ? mouseRef.y * 0.8 : 0;
-    const stretchZ = isPulling ? (power / MAX_POWER) * 2.0 : 0;
+    const power = powerRef.current;
+    const tension = power / MAX_POWER;
 
-    const pouchTarget = new THREE.Vector3(
-      stretchX,
-      PLAYER_HEIGHT + 0.1 + stretchY,
-      1 + stretchZ
-    );
+    // Elastic visualization
+    const stretchX = isPulling ? mouseRef.x * 0.5 : 0;
+    const stretchY = isPulling ? mouseRef.y * 0.6 : 0;
+    const stretchZ = isPulling ? tension * 2.5 : 0;
 
+    const pouchTarget = new THREE.Vector3(stretchX, 0.3 + stretchY, stretchZ);
     pouchRef.current.position.lerp(pouchTarget, 0.3);
     const pouchPos = pouchRef.current.position;
 
     leftBandRef.current.geometry.setFromPoints([forkLeft, pouchPos]);
     rightBandRef.current.geometry.setFromPoints([forkRight, pouchPos]);
 
-    // 2. Aiming Arrow Logic
-    if (isPulling && power > 5) {
+    // Aiming Arrow
+    if (isPulling && power > 2) {
       arrowRef.current.visible = true;
+      const pitch = -mouseRef.y * 0.85;
+      arrowRef.current.rotation.x = pitch;
+
+      const scale = tension * 7 + 1.5;
+      arrowShaftRef.current.scale.y = scale;
+      arrowShaftRef.current.position.z = -scale / 2;
       
-      // The direction math must match Game.tsx fireProjectile exactly
-      const aimDir = new THREE.Vector3(
-        -mouseRef.x * 12,
-        -mouseRef.y * 18,
-        -35
-      ).normalize();
-
-      // Update Arrow Rotation to match aim direction
-      const quaternion = new THREE.Quaternion();
-      const up = new THREE.Vector3(0, 1, 0);
-      quaternion.setFromUnitVectors(up, aimDir);
-      arrowRef.current.quaternion.slerp(quaternion, 0.2);
-
-      // Scale arrow based on power
-      const scaleFactor = (power / MAX_POWER) * 4;
-      arrowShaftRef.current.scale.y = scaleFactor;
-      arrowShaftRef.current.position.y = scaleFactor / 2;
-      arrowHeadRef.current.position.y = scaleFactor;
-
-      // Change color based on tension (Yellow -> Orange -> Red)
-      const color = new THREE.Color().setHSL(0.15 * (1 - power / MAX_POWER), 1, 0.5);
+      const color = new THREE.Color().setHSL(0.35 * (1 - tension), 1, 0.6);
       if (arrowMaterialRef.current) {
         arrowMaterialRef.current.color.copy(color);
-        arrowMaterialRef.current.emissive.copy(color).multiplyScalar(0.5);
+        arrowMaterialRef.current.emissive.copy(color).multiplyScalar(1.2);
       }
     } else {
       arrowRef.current.visible = false;
@@ -83,53 +65,49 @@ const Slingshot: React.FC<SlingshotProps> = ({ isPulling, mouseRef, power }) => 
 
   return (
     <group>
-      {/* Wooden Frame */}
-      <group position={[0, PLAYER_HEIGHT - 0.4, 1]}>
-        <mesh position={[0, -0.3, 0]}>
-          <boxGeometry args={[0.1, 0.7, 0.1]} />
-          <meshStandardMaterial color="#4e342e" />
+      {/* Wooden Slingshot Frame */}
+      <group position={[0, -0.6, 0]}>
+        <mesh position={[0, -0.4, 0]} castShadow>
+          <boxGeometry args={[0.18, 1.2, 0.18]} />
+          <meshStandardMaterial color="#4e342e" roughness={0.9} />
         </mesh>
-        <mesh position={[0, 0.1, 0]}>
-          <boxGeometry args={[0.7, 0.1, 0.1]} />
-          <meshStandardMaterial color="#4e342e" />
+        <mesh position={[0, 0.2, 0]} castShadow>
+          <boxGeometry args={[0.9, 0.18, 0.18]} />
+          <meshStandardMaterial color="#4e342e" roughness={0.9} />
         </mesh>
-        <mesh position={[-0.35, 0.3, 0]}>
-          <boxGeometry args={[0.1, 0.5, 0.1]} />
-          <meshStandardMaterial color="#4e342e" />
+        <mesh position={[-0.45, 0.5, 0]} castShadow>
+          <boxGeometry args={[0.18, 0.8, 0.18]} />
+          <meshStandardMaterial color="#4e342e" roughness={0.9} />
         </mesh>
-        <mesh position={[0.35, 0.3, 0]}>
-          <boxGeometry args={[0.1, 0.5, 0.1]} />
-          <meshStandardMaterial color="#4e342e" />
+        <mesh position={[0.45, 0.5, 0]} castShadow>
+          <boxGeometry args={[0.18, 0.8, 0.18]} />
+          <meshStandardMaterial color="#4e342e" roughness={0.9} />
         </mesh>
       </group>
 
-      {/* Aiming Arrow */}
-      <group ref={arrowRef} position={[0, PLAYER_HEIGHT + 0.1, 1]} visible={false}>
-        <mesh ref={arrowShaftRef}>
+      {/* Target Preview Arrow */}
+      <group ref={arrowRef} position={[0, 0.3, 0]} visible={false}>
+        <mesh ref={arrowShaftRef} rotation={[Math.PI / 2, 0, 0]}>
           <cylinderGeometry args={[0.02, 0.02, 1, 8]} />
-          <meshStandardMaterial ref={arrowMaterialRef} transparent opacity={0.8} emissiveIntensity={1} />
-        </mesh>
-        <mesh ref={arrowHeadRef}>
-          <coneGeometry args={[0.08, 0.2, 8]} />
-          <meshStandardMaterial color="white" />
+          <meshStandardMaterial ref={arrowMaterialRef} transparent opacity={0.8} emissiveIntensity={2} />
         </mesh>
       </group>
 
-      {/* Rubber Bands */}
+      {/* Elastic Bands */}
       <line ref={leftBandRef as any}>
         <bufferGeometry />
-        <lineBasicMaterial color="#ff5252" linewidth={3} />
+        <lineBasicMaterial color="#d32f2f" linewidth={5} />
       </line>
       <line ref={rightBandRef as any}>
         <bufferGeometry />
-        <lineBasicMaterial color="#ff5252" linewidth={3} />
+        <lineBasicMaterial color="#d32f2f" linewidth={5} />
       </line>
 
-      {/* Pouch with Stone */}
+      {/* Pouch */}
       <group ref={pouchRef}>
         <mesh castShadow>
-          <sphereGeometry args={[0.08, 12, 12]} />
-          <meshStandardMaterial color="#424242" />
+          <sphereGeometry args={[0.12, 16, 16]} />
+          <meshStandardMaterial color="#333" roughness={0.4} />
         </mesh>
       </group>
     </group>

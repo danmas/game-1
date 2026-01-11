@@ -19,11 +19,6 @@ declare global {
   namespace JSX {
     interface IntrinsicElements extends ThreeElements {}
   }
-  namespace React {
-    namespace JSX {
-      interface IntrinsicElements extends ThreeElements {}
-    }
-  }
 }
 
 interface GameProps {
@@ -35,53 +30,35 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
   const [targets, setTargets] = useState<TargetData[]>([]);
   const [projectiles, setProjectiles] = useState<ProjectileData[]>([]);
   const [isPulling, setIsPulling] = useState(false);
-  const [power, setPower] = useState(0);
   const [activeProjectileId, setActiveProjectileId] = useState<string | null>(null);
 
-  const { mouse, camera } = useThree();
+  const { mouse } = useThree();
+  const playerGroupRef = useRef<THREE.Group>(null!);
   const cameraRef = useRef<THREE.PerspectiveCamera>(null!);
-  const powerRef = useRef(0);
   
-  // Default camera settings
-  const defaultCamPos = useMemo(() => new THREE.Vector3(0, PLAYER_HEIGHT + 0.4, 6), []);
-  const defaultLookAt = useMemo(() => new THREE.Vector3(0, PLAYER_HEIGHT + 0.4, -10), []);
+  const powerValueRef = useRef(0); 
 
-  // Memoize tree positions
   const trees = useMemo(() => {
-    return Array.from({ length: 40 }).map((_, i) => ({
+    return Array.from({ length: 200 }).map((_, i) => ({
       id: i,
       position: [
-        (Math.random() - 0.5) * 80, 
+        (Math.random() - 0.5) * 500, 
         0, 
-        -Math.random() * 120 - 20
+        (Math.random() - 0.5) * 500 - 150
       ] as [number, number, number],
-      scale: 0.8 + Math.random() * 0.5
+      scale: 1.5 + Math.random() * 3.0
     }));
   }, []);
 
-  // Initialize camera position once
-  useEffect(() => {
-    if (cameraRef.current) {
-      cameraRef.current.position.copy(defaultCamPos);
-      cameraRef.current.lookAt(defaultLookAt);
-    }
-  }, [defaultCamPos, defaultLookAt]);
-
-  // Sync ref for access in fireProjectile during event callback if needed (though here we use it in useFrame mostly)
-  useEffect(() => {
-    powerRef.current = power;
-  }, [power]);
-
-  // Initialize targets
   useEffect(() => {
     const newTargets: TargetData[] = [];
     for (let i = 0; i < TARGET_COUNT; i++) {
       newTargets.push({
         id: `target-${i}`,
         position: {
-          x: (Math.random() - 0.5) * 12,
-          y: 1.2 + Math.random() * 2,
-          z: -20 - (i * 15) - Math.random() * 5
+          x: (Math.random() - 0.5) * 150,
+          y: 3 + Math.random() * 6,
+          z: -80 - (i * 35) - Math.random() * 40
         },
         hit: false
       });
@@ -90,21 +67,28 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
   }, []);
 
   const fireProjectile = () => {
-    // Basic direction based on mouse position
-    // We invert mouse X because pulling right should aim slightly left and vice versa
-    const direction = new THREE.Vector3(
-      -mouse.x * 12,  
-      -mouse.y * 18, 
-      -35            
-    ).normalize();
+    const power = powerValueRef.current;
+    if (power < 0.5) {
+      setIsPulling(false);
+      onPowerChange(0);
+      return;
+    }
 
-    // Use current calculated power
-    const velocity = direction.multiplyScalar(powerRef.current);
-    const id = `stone-${Date.now()}`;
+    const yaw = playerGroupRef.current.rotation.y;
+    // Pull down to shoot up
+    const pitch = -mouse.y * 1.2; 
 
+    const direction = new THREE.Vector3(0, Math.sin(pitch), -Math.cos(pitch));
+    direction.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+    direction.normalize();
+
+    const velocity = direction.multiplyScalar(power);
+    const id = `projectile-${Date.now()}`;
+
+    // Spawn relative to player group (which is at origin horizontally)
     const newProjectile: ProjectileData = {
       id,
-      position: { x: 0, y: PLAYER_HEIGHT + 0.1, z: 0.8 },
+      position: { x: 0, y: PLAYER_HEIGHT + 0.5, z: -0.1 },
       velocity: { x: velocity.x, y: velocity.y, z: velocity.z },
       createdAt: Date.now()
     };
@@ -112,171 +96,171 @@ const Scene: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
     setProjectiles(prev => [...prev, newProjectile]);
     setActiveProjectileId(id);
     
-    // Reset state
     setIsPulling(false);
-    setPower(0);
     onPowerChange(0);
-  };
-
-  const handlePointerDown = () => {
-    setIsPulling(true);
-    setActiveProjectileId(null); // Return camera to player to start aiming
-  };
-
-  const handlePointerUp = () => {
-    if (isPulling) {
-      // Small threshold to prevent firing on tiny accidental clicks
-      if (powerRef.current > 5) {
-        fireProjectile();
-      } else {
-        setIsPulling(false);
-        setPower(0);
-        onPowerChange(0);
-      }
-    }
+    powerValueRef.current = 0;
   };
 
   useFrame((state, delta) => {
-    // 1. Update power based on mouse displacement from "neutral"
+    // 1. Controls logic
     if (isPulling) {
-      // Calculate distance from center (0,0) of the screen
-      // mouse.x/y is [-1, 1]
       const pullDist = Math.sqrt(mouse.x * mouse.x + mouse.y * mouse.y);
-      // Map 0-0.8 pull to 0-MAX_POWER
-      const normalizedPull = Math.min(pullDist / 0.8, 1.0);
-      const newPower = normalizedPull * MAX_POWER;
-      
-      setPower(newPower);
+      const normalizedPull = Math.min(pullDist / 0.4, 1.0);
+      powerValueRef.current = normalizedPull * MAX_POWER;
       onPowerChange(normalizedPull);
+
+      const targetYaw = mouse.x * 4.5; 
+      playerGroupRef.current.rotation.y = THREE.MathUtils.lerp(playerGroupRef.current.rotation.y, targetYaw, 0.2);
+    } else if (!activeProjectileId) {
+      playerGroupRef.current.rotation.y = THREE.MathUtils.lerp(playerGroupRef.current.rotation.y, 0, 0.05);
     }
 
-    // 2. Physics Calculation
-    const now = Date.now();
-    const nextProjectiles: ProjectileData[] = [];
-    let hitOccurred = false;
-    const hitIds: string[] = [];
-    let currentActiveProjectile: ProjectileData | undefined = undefined;
+    // 2. Physics loop - CRITICAL: Only update state if there are projectiles to move
+    if (projectiles.length > 0) {
+      const now = Date.now();
+      const nextProjectiles: ProjectileData[] = [];
+      let hitOccurred = false;
+      const hitIds: string[] = [];
+      let currentActive: ProjectileData | undefined;
 
-    for (const p of projectiles) {
-      if (now - p.createdAt > PROJECTILE_LIFETIME) continue;
+      for (const p of projectiles) {
+        if (now - p.createdAt > PROJECTILE_LIFETIME) continue;
 
-      const newPos = {
-        x: p.position.x + p.velocity.x * delta,
-        y: p.position.y + p.velocity.y * delta,
-        z: p.position.z + p.velocity.z * delta
-      };
-      const newVel = {
-        x: p.velocity.x,
-        y: p.velocity.y - GRAVITY * delta,
-        z: p.velocity.z
-      };
+        const newPos = {
+          x: p.position.x + p.velocity.x * delta,
+          y: p.position.y + p.velocity.y * delta,
+          z: p.position.z + p.velocity.z * delta
+        };
+        const newVel = {
+          x: p.velocity.x,
+          y: p.velocity.y - GRAVITY * delta,
+          z: p.velocity.z
+        };
 
-      if (newPos.y < -1) continue; // Let it fall slightly below ground for better follow feel
+        // Collision with ground
+        if (newPos.y < -0.1) continue;
 
-      let currentProjectileHit = false;
-      for (const t of targets) {
-        if (t.hit) continue;
-        const dx = newPos.x - t.position.x;
-        const dy = newPos.y - t.position.y;
-        const dz = newPos.z - t.position.z;
-        const distSq = dx * dx + dy * dy + dz * dz;
-        
-        if (distSq < 1.0) {
-          hitOccurred = true;
-          hitIds.push(t.id);
-          currentProjectileHit = true;
-          break; 
+        let hit = false;
+        for (const t of targets) {
+          if (t.hit) continue;
+          const distSq = Math.pow(newPos.x - t.position.x, 2) + 
+                         Math.pow(newPos.y - t.position.y, 2) + 
+                         Math.pow(newPos.z - t.position.z, 2);
+          
+          if (distSq < 4.0) {
+            hitOccurred = true;
+            hitIds.push(t.id);
+            hit = true;
+            break;
+          }
+        }
+
+        if (!hit) {
+          const updated = { ...p, position: newPos, velocity: newVel };
+          nextProjectiles.push(updated);
+          if (p.id === activeProjectileId) currentActive = updated;
         }
       }
 
-      if (!currentProjectileHit) {
-        const updatedP = { ...p, position: newPos, velocity: newVel };
-        nextProjectiles.push(updatedP);
-        if (p.id === activeProjectileId) {
-          currentActiveProjectile = updatedP;
-        }
+      if (hitOccurred) {
+        setTargets(prev => prev.map(t => hitIds.includes(t.id) ? { ...t, hit: true } : t));
+        hitIds.forEach(() => onHit());
       }
-    }
-
-    if (hitOccurred) {
-      setTargets(prevT => prevT.map(t => hitIds.includes(t.id) ? { ...t, hit: true } : t));
-      for (let i = 0; i < hitIds.length; i++) onHit();
-    }
-
-    if (nextProjectiles.length !== projectiles.length || nextProjectiles.length > 0) {
+      
+      // Update state only if it actually changed to avoid redundant renders and race conditions
       setProjectiles(nextProjectiles);
-    }
-
-    // 3. Camera Logic
-    const cam = cameraRef.current || camera;
-    if (currentActiveProjectile) {
-      const p = currentActiveProjectile.position;
-      // Position camera slightly behind and above the stone
-      const followOffset = new THREE.Vector3(p.x, p.y + 0.8, p.z + 4);
-      cam.position.lerp(followOffset, 0.1);
-      cam.lookAt(p.x, p.y, p.z);
+      
+      // Camera following active projectile
+      if (currentActive) {
+        const p = currentActive.position;
+        const followPos = new THREE.Vector3(p.x, p.y + 3, p.z + 12);
+        state.camera.position.lerp(followPos, 0.2);
+        state.camera.lookAt(p.x, p.y, p.z);
+      }
     } else {
-      cam.position.lerp(defaultCamPos, 0.05);
-      const currentLookAt = new THREE.Vector3();
-      cam.getWorldDirection(currentLookAt);
-      const targetLookAt = defaultLookAt.clone().sub(cam.position).normalize();
-      const finalLookAt = currentLookAt.lerp(targetLookAt, 0.05);
-      cam.lookAt(cam.position.clone().add(finalLookAt));
+      // 3. Reset Camera when no projectiles are flying
+      // To LOWER the horizon, we look HIGHER.
+      cameraRef.current.position.lerp(new THREE.Vector3(0, 0.3, 7), 0.1);
+      const lookAtPoint = new THREE.Vector3(0, 3.5, 0); // Pointing higher = lower horizon
+      cameraRef.current.lookAt(lookAtPoint);
     }
   });
 
+  const handlePointerDown = (e: any) => {
+    e.stopPropagation();
+    e.target.setPointerCapture(e.pointerId);
+    setIsPulling(true);
+    setActiveProjectileId(null);
+  };
+
+  const handlePointerUp = (e: any) => {
+    e.stopPropagation();
+    e.target.releasePointerCapture(e.pointerId);
+    if (isPulling) {
+      fireProjectile();
+    }
+  };
+
   return (
     <>
-      <PerspectiveCamera ref={cameraRef} makeDefault fov={45} />
-      
-      <Sky sunPosition={[100, 20, 100]} turbidity={0.1} rayleigh={0.3} />
-      <Stars radius={100} depth={50} count={1500} factor={4} saturation={0} fade speed={0} />
-      
-      <ambientLight intensity={0.8} />
-      <directionalLight position={[10, 20, 10]} intensity={1.2} castShadow />
+      <group ref={playerGroupRef} position={[0, PLAYER_HEIGHT, 0]}>
+        <PerspectiveCamera ref={cameraRef} makeDefault fov={50} />
+        <Slingshot isPulling={isPulling} mouseRef={mouse} powerRef={powerValueRef} />
 
-      <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[1000, 1000]} />
-        <meshStandardMaterial color="#2d4a31" roughness={1} />
-      </mesh>
-      
-      {trees.map((tree) => (
-        <mesh key={tree.id} position={tree.position}>
-          <cylinderGeometry args={[0.1 * tree.scale, 0.2 * tree.scale, 5 * tree.scale, 6]} />
-          <meshStandardMaterial color="#1b1108" />
+        {/* Interaction Mesh */}
+        <mesh 
+          position={[0, 0, -4]} 
+          onPointerDown={handlePointerDown} 
+          onPointerUp={handlePointerUp}
+        >
+          <planeGeometry args={[200, 200]} />
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} colorWrite={false} />
         </mesh>
-      ))}
+      </group>
 
-      <Slingshot 
-        isPulling={isPulling} 
-        mouseRef={mouse} 
-        power={power} 
+      {/* Ultra Bright Environment */}
+      <Sky sunPosition={[100, 150, 20]} turbidity={0} rayleigh={0.01} />
+      <ambientLight intensity={1.8} />
+      <directionalLight 
+        position={[80, 100, 50]} 
+        intensity={3.5} 
+        castShadow 
+        shadow-mapSize={[2048, 2048]}
       />
 
-      {targets.map(t => !t.hit && <Target key={t.id} position={t.position} />)}
-      {projectiles.map(p => (
-        <Projectile key={p.id} position={p.position} />
+      {/* Vibrant Green Ground */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+        <planeGeometry args={[4000, 4000]} />
+        <meshStandardMaterial color="#27AE60" roughness={0.4} metalness={0.0} />
+      </mesh>
+
+      {/* Forest */}
+      {trees.map(t => (
+        <group key={t.id} position={t.position}>
+          <mesh position={[0, 7 * t.scale, 0]} castShadow>
+            <cylinderGeometry args={[0.3 * t.scale, 0.7 * t.scale, 14 * t.scale, 8]} />
+            <meshStandardMaterial color="#341F1A" />
+          </mesh>
+          <mesh position={[0, 15 * t.scale, 0]} castShadow>
+            <sphereGeometry args={[4 * t.scale, 10, 10]} />
+            <meshStandardMaterial color="#0E6251" />
+          </mesh>
+        </group>
       ))}
 
-      {/* Capture Plane for Pointer Events */}
-      <mesh 
-        position={[0, PLAYER_HEIGHT, 3]} 
-        onPointerDown={handlePointerDown} 
-        onPointerUp={handlePointerUp}
-      >
-        <planeGeometry args={[100, 100]} />
-        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
-      </mesh>
+      {/* Game Entities */}
+      {targets.map(t => !t.hit && <Target key={t.id} position={t.position} />)}
+      {projectiles.map(p => <Projectile key={p.id} position={p.position} />)}
     </>
   );
 };
 
-const Game: React.FC<GameProps> = ({ onHit, onPowerChange }) => {
+const Game: React.FC<GameProps> = (props) => {
   return (
-    <div className="w-full h-full bg-slate-900">
-      <Canvas shadows dpr={[1, 1.5]}>
+    <div className="w-full h-full bg-[#D1F2EB]">
+      <Canvas shadows dpr={[1, 2]} gl={{ antialias: true, toneMapping: THREE.NoToneMapping }}>
         <Suspense fallback={null}>
-          <Scene onHit={onHit} onPowerChange={onPowerChange} />
+          <Scene {...props} />
         </Suspense>
       </Canvas>
     </div>
